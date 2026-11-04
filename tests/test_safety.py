@@ -1,46 +1,73 @@
-"""Safety tests: the server must refuse every mutating AWS operation.
+"""Prove that unapproved calls cannot reach boto3, regardless of verb."""
 
-These assert the security boundary — no write operation can reach boto3 —
-rather than testing happy-path output (which would need live AWS creds).
-"""
+import ast
+import inspect
+from unittest.mock import Mock
 
+import botocore.session
 import pytest
+from botocore import xform_name
 
-from aws_readonly_mcp.server import _aws_call, READONLY_PREFIXES
-
-# Operations that change account state. None should ever be runnable.
-MUTATING_OPERATIONS = [
-    "run_instances",
-    "terminate_instances",
-    "delete_bucket",
-    "create_bucket",
-    "put_object",
-    "modify_instance_attribute",
-    "delete_user",
-    "create_user",
-    "attach_role_policy",
-    "stop_instances",
-]
-
-
-@pytest.mark.parametrize("operation", MUTATING_OPERATIONS)
-def test_mutating_operations_are_refused(operation):
-    """Every mutating operation must raise before boto3 is ever invoked."""
-    with pytest.raises(ValueError, match="read-only"):
-        _aws_call("ec2", operation)
-
-
-def test_readonly_prefixes_are_lowercase():
-    """The allow-list must be lowercase so normalized comparison works."""
-    assert all(p == p.lower() for p in READONLY_PREFIXES)
+from aws_readonly_mcp import server
 
 
 @pytest.mark.parametrize(
-    "operation", ["describe_instances", "list_buckets", "get_user"]
+    "service,operation",
+    [
+        ("ec2", "run_instances"),
+        ("ec2", "terminate_instances"),
+        ("s3", "delete_bucket"),
+        ("s3", "put_object"),
+        ("ecs", "execute_command"),
+        ("ecs", "update_service"),
+        ("ecs", "stop_task"),
+        ("ecs", "run_task"),
+        ("logs", "start_query"),
+        ("logs", "put_log_events"),
+        ("logs", "delete_log_group"),
+        ("iam", "create_user"),
+        ("sts", "get_session_token"),
+        ("sts", "get_federation_token"),
+        ("secretsmanager", "get_secret_value"),
+        ("s3", "list_unknown"),
+        ("ec2", "list_buckets"),
+        ("s3", "ListBuckets"),
+        ("unknown", "describe_instances"),
+        ("s3", "__getattribute__"),
+    ],
 )
-def test_readonly_operations_pass_the_gate(operation):
-    """Read-only operations get past the verb check (they fail later only on
-    missing AWS creds, not on the safety gate — so we assert the error, if
-    any, is NOT the read-only refusal)."""
-    result = _aws_call("ec2", operation)
-    assert "This server is read-only" not in result
+def test_unapproved_calls_never_create_a_client(monkeypatch, service, operation):
+    client = Mock(side_effect=AssertionError("AWS must not be contacted"))
+    monkeypatch.setattr(server.boto3, "client", client)
+    with pytest.raises(ValueError, match="read-only"):
+        server._aws_call(service, operation)
+    client.assert_not_called()
+
+
+@pytest.mark.parametrize("service", server.READONLY_OPERATIONS)
+def test_every_unlisted_sdk_operation_is_denied(monkeypatch, service):
+    client = Mock(side_effect=AssertionError("AWS must not be contacted"))
+    monkeypatch.setattr(server.boto3, "client", client)
+    model = botocore.session.get_session().get_service_model(service)
+    methods = {xform_name(operation) for operation in model.operation_names}
+    assert server.READONLY_OPERATIONS[service] <= methods
+    for operation in methods - server.READONLY_OPERATIONS[service]:
+        with pytest.raises(ValueError, match="read-only"):
+            server._aws_call(service, operation)
+    client.assert_not_called()
+
+
+def test_boto3_client_creation_has_one_boundary():
+    tree = ast.parse(inspect.getsource(server))
+    owners = []
+    for function in tree.body:
+        if isinstance(function, ast.FunctionDef):
+            for node in ast.walk(function):
+                if (
+                    isinstance(node, ast.Call)
+                    and isinstance(node.func, ast.Attribute)
+                    and isinstance(node.func.value, ast.Name)
+                    and node.func.value.id == "boto3"
+                ):
+                    owners.append((function.name, node.func.attr))
+    assert owners == [("_aws_call", "client")]
