@@ -143,6 +143,7 @@ Prerequisites: Python 3.10+ and AWS credentials available through the standard S
 ```bash
 uv sync
 export AWS_PROFILE=my-readonly-profile
+aws login --profile $AWS_PROFILE
 aws sts get-caller-identity  # optional identity check
 uv run aws-readonly-mcp
 ```
