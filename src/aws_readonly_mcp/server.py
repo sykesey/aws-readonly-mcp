@@ -40,6 +40,27 @@ READONLY_OPERATIONS = {
             "describe_container_instances",
         }
     ),
+    "lambda": frozenset(
+        {
+            "list_functions",
+            "get_function_configuration",
+            "list_event_source_mappings",
+        }
+    ),
+    "cloudformation": frozenset(
+        {
+            "list_stacks",
+            "describe_stacks",
+            "list_stack_resources",
+            "describe_stack_events",
+            "get_template",
+            "list_exports",
+        }
+    ),
+    "rds": frozenset({"describe_db_instances", "describe_db_clusters"}),
+    "sqs": frozenset(
+        {"list_queues", "get_queue_attributes", "list_dead_letter_source_queues"}
+    ),
     "logs": frozenset(
         {
             "describe_log_groups",
@@ -477,6 +498,244 @@ def describe_ecs_container_instances(
             container_instances, 100, "container instances"
         ),
         include=["TAGS", "CONTAINER_INSTANCE_HEALTH"],
+    )
+
+
+@mcp.tool()
+def list_lambda_functions(
+    region: str = "us-east-1",
+    limit: int = 50,
+    marker: str | None = None,
+) -> str:
+    """List a page of Lambda function configurations (1..50). Continue with NextMarker as marker."""
+    return _aws_call(
+        "lambda",
+        "list_functions",
+        region=region,
+        MaxItems=_limit(limit, 50),
+        **_optional(Marker=marker),
+    )
+
+
+@mcp.tool()
+def get_lambda_function(
+    function_name: str, region: str = "us-east-1", qualifier: str | None = None
+) -> str:
+    """Inspect a function's runtime, role, limits, VPC, layers, and environment.
+
+    Accepts a name or ARN; qualifier is a version or alias. Plaintext environment
+    variables are included. Code is not downloaded.
+    """
+    return _aws_call(
+        "lambda",
+        "get_function_configuration",
+        region=region,
+        FunctionName=function_name,
+        **_optional(Qualifier=qualifier),
+    )
+
+
+@mcp.tool()
+def list_lambda_event_source_mappings(
+    region: str = "us-east-1",
+    function_name: str | None = None,
+    limit: int = 100,
+    marker: str | None = None,
+) -> str:
+    """List SQS/Kinesis/DynamoDB/etc. triggers, optionally for one function (1..100).
+
+    Continue with NextMarker as marker.
+    """
+    return _aws_call(
+        "lambda",
+        "list_event_source_mappings",
+        region=region,
+        MaxItems=_limit(limit, 100),
+        **_optional(FunctionName=function_name, Marker=marker),
+    )
+
+
+@mcp.tool()
+def describe_rds_instances(
+    region: str = "us-east-1",
+    db_instance_identifier: str | None = None,
+    limit: int = 100,
+    marker: str | None = None,
+) -> str:
+    """Inspect RDS/Aurora DB instances (page size 20..100), optionally one by identifier.
+
+    Continue with Marker as marker. Master passwords are never returned.
+    """
+    return _aws_call(
+        "rds",
+        "describe_db_instances",
+        region=region,
+        MaxRecords=_limit(limit, 100, minimum=20),
+        **_optional(DBInstanceIdentifier=db_instance_identifier, Marker=marker),
+    )
+
+
+@mcp.tool()
+def describe_rds_clusters(
+    region: str = "us-east-1",
+    db_cluster_identifier: str | None = None,
+    limit: int = 100,
+    marker: str | None = None,
+) -> str:
+    """Inspect Aurora/Multi-AZ DB clusters (page size 20..100), optionally one by identifier.
+
+    Includes members, endpoints, engine, and status. Continue with Marker as marker.
+    """
+    return _aws_call(
+        "rds",
+        "describe_db_clusters",
+        region=region,
+        MaxRecords=_limit(limit, 100, minimum=20),
+        **_optional(DBClusterIdentifier=db_cluster_identifier, Marker=marker),
+    )
+
+
+@mcp.tool()
+def list_sqs_queues(
+    region: str = "us-east-1",
+    name_prefix: str | None = None,
+    limit: int = 100,
+    next_token: str | None = None,
+) -> str:
+    """List a page of SQS queue URLs (1..1000), optionally by name prefix. Continue with NextToken."""
+    return _aws_call(
+        "sqs",
+        "list_queues",
+        region=region,
+        MaxResults=_limit(limit, 1000),
+        **_optional(QueueNamePrefix=name_prefix, NextToken=next_token),
+    )
+
+
+@mcp.tool()
+def get_sqs_queue_attributes(queue_url: str, region: str = "us-east-1") -> str:
+    """Inspect a queue by URL: approximate message counts, timeouts, redrive policy, access policy.
+
+    Message bodies are never read.
+    """
+    return _aws_call(
+        "sqs",
+        "get_queue_attributes",
+        region=region,
+        QueueUrl=queue_url,
+        AttributeNames=["All"],
+    )
+
+
+@mcp.tool()
+def list_sqs_dead_letter_source_queues(
+    queue_url: str,
+    region: str = "us-east-1",
+    limit: int = 100,
+    next_token: str | None = None,
+) -> str:
+    """List queue URLs whose redrive policy targets this dead-letter queue. Continue with NextToken."""
+    return _aws_call(
+        "sqs",
+        "list_dead_letter_source_queues",
+        region=region,
+        QueueUrl=queue_url,
+        MaxResults=_limit(limit, 1000),
+        **_optional(NextToken=next_token),
+    )
+
+
+@mcp.tool()
+def list_cloudformation_stacks(
+    region: str = "us-east-1",
+    status_filter: list[str] | None = None,
+    next_token: str | None = None,
+) -> str:
+    """List one page of stack summaries (including deleted stacks for 90 days).
+
+    status_filter takes statuses such as CREATE_COMPLETE or UPDATE_ROLLBACK_COMPLETE.
+    Continue with NextToken as next_token.
+    """
+    return _aws_call(
+        "cloudformation",
+        "list_stacks",
+        region=region,
+        **_optional(StackStatusFilter=status_filter, NextToken=next_token),
+    )
+
+
+@mcp.tool()
+def describe_cloudformation_stacks(
+    region: str = "us-east-1",
+    stack_name: str | None = None,
+    next_token: str | None = None,
+) -> str:
+    """Inspect stacks (status, parameters, outputs, tags, drift), optionally one by name/ID.
+
+    NoEcho parameter values are masked by AWS. Continue with NextToken.
+    """
+    return _aws_call(
+        "cloudformation",
+        "describe_stacks",
+        region=region,
+        **_optional(StackName=stack_name, NextToken=next_token),
+    )
+
+
+@mcp.tool()
+def list_cloudformation_stack_resources(
+    stack_name: str, region: str = "us-east-1", next_token: str | None = None
+) -> str:
+    """List a stack's resources with logical/physical IDs, types, and status. Continue with NextToken."""
+    return _aws_call(
+        "cloudformation",
+        "list_stack_resources",
+        region=region,
+        StackName=stack_name,
+        **_optional(NextToken=next_token),
+    )
+
+
+@mcp.tool()
+def describe_cloudformation_stack_events(
+    stack_name: str, region: str = "us-east-1", next_token: str | None = None
+) -> str:
+    """List a stack's events, newest first, with failure reasons. Continue with NextToken."""
+    return _aws_call(
+        "cloudformation",
+        "describe_stack_events",
+        region=region,
+        StackName=stack_name,
+        **_optional(NextToken=next_token),
+    )
+
+
+@mcp.tool()
+def get_cloudformation_template(
+    stack_name: str,
+    region: str = "us-east-1",
+    stage: Literal["Original", "Processed"] = "Original",
+) -> str:
+    """Read a stack's template as submitted (Original) or after transforms (Processed)."""
+    return _aws_call(
+        "cloudformation",
+        "get_template",
+        region=region,
+        StackName=stack_name,
+        TemplateStage=stage,
+    )
+
+
+@mcp.tool()
+def list_cloudformation_exports(
+    region: str = "us-east-1", next_token: str | None = None
+) -> str:
+    """List exported stack output values available for cross-stack imports. Continue with NextToken."""
+    return _aws_call(
+        "cloudformation",
+        "list_exports",
+        region=region,
+        **_optional(NextToken=next_token),
     )
 
 

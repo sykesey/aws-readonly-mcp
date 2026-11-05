@@ -1,8 +1,8 @@
 # aws-readonly-mcp
 
 A read-only [Model Context Protocol](https://modelcontextprotocol.io) (MCP) server for
-inspecting AWS accounts. Browse ECS resources, CloudWatch Logs, S3 buckets and objects,
-EC2 instances, IAM users, and costs through **25 tools**.
+inspecting AWS accounts. Browse ECS, Lambda, RDS/Aurora, SQS, and CloudFormation resources, CloudWatch Logs, S3 buckets and
+objects, EC2 instances, IAM users, and costs through **39 tools**.
 
 ## Read-only boundary
 
@@ -48,6 +48,46 @@ For an investigation, discover the cluster and service, inspect tasks (including
 when relevant), then read the task definition's `logConfiguration`. Its `awslogs-group`,
 `awslogs-region`, and `awslogs-stream-prefix` options lead to the CloudWatch tools below.
 No ECS Exec, task launch/stop, or deployment actions are available.
+
+### Lambda
+
+| Tool | Inspection |
+|------|------------|
+| `list_lambda_functions` | Function configurations, 1..50 per page |
+| `get_lambda_function` | Runtime, role, limits, VPC, layers, and environment for a name/ARN and optional qualifier; code is not downloaded |
+| `list_lambda_event_source_mappings` | Triggers (SQS, Kinesis, DynamoDB, ...), optionally for one function |
+
+Plaintext environment variables are returned as configured. `invoke` and `get_function` (which returns a code download URL) are not available.
+
+### RDS / Aurora
+
+| Tool | Inspection |
+|------|------------|
+| `describe_rds_instances` | Engine, class, status, endpoint, storage, Multi-AZ; optionally one instance |
+| `describe_rds_clusters` | Aurora/Multi-AZ cluster members, endpoints, engine, status; optionally one cluster |
+
+### SQS
+
+| Tool | Inspection |
+|------|------------|
+| `list_sqs_queues` | Queue URLs, optionally by name prefix |
+| `get_sqs_queue_attributes` | Approximate message counts, timeouts, redrive and access policies |
+| `list_sqs_dead_letter_source_queues` | Queues that use a given queue as their dead-letter queue |
+
+Messages are never received, because receiving changes visibility state.
+
+### CloudFormation
+
+| Tool | Inspection |
+|------|------------|
+| `list_cloudformation_stacks` | Stack summaries, optionally filtered by status |
+| `describe_cloudformation_stacks` | Status, parameters, outputs, tags, and drift; optionally one stack |
+| `list_cloudformation_stack_resources` | Logical/physical IDs, types, and status of a stack's resources |
+| `describe_cloudformation_stack_events` | Events, newest first, with failure reasons |
+| `get_cloudformation_template` | Original or processed template |
+| `list_cloudformation_exports` | Exported values available for cross-stack imports |
+
+Stack creation, updates, deletion, and change-set execution are not available.
 
 ### CloudWatch Logs
 
@@ -122,6 +162,8 @@ Repeat the call with the same filters/region and the appropriate token:
 | Tools | Response field | Next request parameter | Finished when |
 |-------|----------------|------------------------|---------------|
 | ECS lists, log group/stream lists, log filtering | `nextToken` | `next_token` | Token absent |
+| Lambda lists, RDS describes | `NextMarker` (Lambda) / `Marker` (RDS) | `marker` | Token absent |
+| SQS lists, CloudFormation lists/describes | `NextToken` | `next_token` | Token absent |
 | EC2 instances | `NextToken` | `next_token` | Token absent |
 | S3 buckets | `ContinuationToken` | `continuation_token` | Token absent |
 | S3 objects | `NextContinuationToken` | `continuation_token` | `IsTruncated` is false |
@@ -185,7 +227,7 @@ uv run ruff format --check src tests
 ```
 
 Tests use explicit dummy credentials and botocore Stubber; they never require live AWS
-access. They validate requests for all 25 MCP tools, continuation behavior, partial ECS
+access. They validate requests for all 39 MCP tools, continuation behavior, partial ECS
 failures, bounded/encoded S3 reads and stream cleanup, errors, and rejection of all
 unlisted operations in the supported services' SDK models. Live IAM/resource access
 must be verified separately in the target account.

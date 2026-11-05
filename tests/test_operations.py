@@ -92,6 +92,115 @@ CASES = [
         {"Bucket": "example-bucket", "Key": "file.txt", "VersionId": "v1"},
     ),
     (
+        "list_lambda_functions",
+        "lambda",
+        "list_functions",
+        {"limit": 12, "marker": "m"},
+        {"MaxItems": 12, "Marker": "m"},
+    ),
+    (
+        "get_lambda_function",
+        "lambda",
+        "get_function_configuration",
+        {"function_name": "fn", "qualifier": "live"},
+        {"FunctionName": "fn", "Qualifier": "live"},
+    ),
+    (
+        "list_lambda_event_source_mappings",
+        "lambda",
+        "list_event_source_mappings",
+        {"function_name": "fn", "limit": 12, "marker": "m"},
+        {"FunctionName": "fn", "MaxItems": 12, "Marker": "m"},
+    ),
+    (
+        "describe_rds_instances",
+        "rds",
+        "describe_db_instances",
+        {"db_instance_identifier": "db1", "limit": 20, "marker": "m"},
+        {"DBInstanceIdentifier": "db1", "MaxRecords": 20, "Marker": "m"},
+    ),
+    (
+        "describe_rds_clusters",
+        "rds",
+        "describe_db_clusters",
+        {"db_cluster_identifier": "c1", "limit": 20, "marker": "m"},
+        {"DBClusterIdentifier": "c1", "MaxRecords": 20, "Marker": "m"},
+    ),
+    (
+        "list_sqs_queues",
+        "sqs",
+        "list_queues",
+        {"name_prefix": "q", "limit": 12, "next_token": "t"},
+        {"QueueNamePrefix": "q", "MaxResults": 12, "NextToken": "t"},
+    ),
+    (
+        "get_sqs_queue_attributes",
+        "sqs",
+        "get_queue_attributes",
+        {"queue_url": "https://sqs.us-east-1.amazonaws.com/123456789012/q"},
+        {
+            "QueueUrl": "https://sqs.us-east-1.amazonaws.com/123456789012/q",
+            "AttributeNames": ["All"],
+        },
+    ),
+    (
+        "list_sqs_dead_letter_source_queues",
+        "sqs",
+        "list_dead_letter_source_queues",
+        {
+            "queue_url": "https://sqs.us-east-1.amazonaws.com/123456789012/dlq",
+            "limit": 12,
+            "next_token": "t",
+        },
+        {
+            "QueueUrl": "https://sqs.us-east-1.amazonaws.com/123456789012/dlq",
+            "MaxResults": 12,
+            "NextToken": "t",
+        },
+    ),
+    (
+        "list_cloudformation_stacks",
+        "cloudformation",
+        "list_stacks",
+        {"status_filter": ["CREATE_COMPLETE"], "next_token": "t"},
+        {"StackStatusFilter": ["CREATE_COMPLETE"], "NextToken": "t"},
+    ),
+    (
+        "describe_cloudformation_stacks",
+        "cloudformation",
+        "describe_stacks",
+        {"stack_name": "s", "next_token": "t"},
+        {"StackName": "s", "NextToken": "t"},
+    ),
+    (
+        "list_cloudformation_stack_resources",
+        "cloudformation",
+        "list_stack_resources",
+        {"stack_name": "s", "next_token": "t"},
+        {"StackName": "s", "NextToken": "t"},
+    ),
+    (
+        "describe_cloudformation_stack_events",
+        "cloudformation",
+        "describe_stack_events",
+        {"stack_name": "s", "next_token": "t"},
+        {"StackName": "s", "NextToken": "t"},
+    ),
+    (
+        "get_cloudformation_template",
+        "cloudformation",
+        "get_template",
+        {"stack_name": "s", "stage": "Processed"},
+        {"StackName": "s", "TemplateStage": "Processed"},
+    ),
+    (
+        "list_cloudformation_exports",
+        "cloudformation",
+        "list_exports",
+        {"next_token": "t"},
+        {"NextToken": "t"},
+    ),
+    (
         "list_ecs_clusters",
         "ecs",
         "list_clusters",
@@ -300,6 +409,8 @@ def test_tool_requests(aws_stub, name, service, operation, kwargs, expected):
     response = {"ResponseMetadata": {"RequestId": "omit-me"}}
     if operation == "get_object":
         response.update(Body=StreamingBody(io.BytesIO(b""), 0), ContentLength=0)
+    if operation == "list_dead_letter_source_queues":
+        response["queueUrls"] = []
     if operation == "get_user":
         response["User"] = {
             "Path": "/",
@@ -340,7 +451,7 @@ def test_every_mcp_tool_has_request_coverage():
     assert {tool.name for tool in tools} == {case[0] for case in CASES} | {
         "get_cost_last_30_days"
     }
-    assert len(tools) == 25
+    assert len(tools) == 39
 
 
 def test_ec2_summary_preserves_token_and_tags(aws_stub):
@@ -584,6 +695,9 @@ def test_missing_credentials_are_reported(monkeypatch):
     [
         (server.list_ecs_clusters, {"limit": 0}),
         (server.list_ec2_instances, {"limit": 4}),
+        (server.list_lambda_functions, {"limit": 51}),
+        (server.describe_rds_instances, {"limit": 19}),
+        (server.list_sqs_queues, {"limit": 1001}),
         (server.list_ecs_services, {"cluster": "demo", "limit": 101}),
         (server.list_cloudwatch_log_groups, {"limit": 51}),
         (server.list_s3_objects, {"bucket": "example-bucket", "limit": 1001}),

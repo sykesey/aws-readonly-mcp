@@ -46,7 +46,7 @@ def test_stdio_discovery_and_tool_calls():
         ):
             await session.initialize()
             tools = await session.list_tools()
-            assert len(tools.tools) == 25
+            assert len(tools.tools) == 39
             names = {tool.name for tool in tools.tools}
             assert {
                 "describe_ecs_tasks",
